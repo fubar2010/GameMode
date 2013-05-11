@@ -1,5 +1,4 @@
 //++++NOTES+++++++++++++++++++++++++++++++++++++++
-// work on hitman fubar
 //====INCLUDES====================================
 #include <a_samp>
 #include <a_mysql>
