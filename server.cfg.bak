@@ -1,0 +1,17 @@
+echo Executing Server Config...
+lanmode 0
+rcon_password chocolate
+maxplayers 50
+port 6666
+plugins crashdetect.so mysql.so sscanf.so streamer.so Whirlpool.so GeoIP_Plugin.so
+hostname World-Gamerz Test Server
+gamemode0 gm 1
+announce 0
+query 1
+weburl www.world-gamerz.com
+maxnpc 0
+onfoot_rate 40
+incar_rate 40
+weapon_rate 40
+stream_distance 300.0
+stream_rate 1000
