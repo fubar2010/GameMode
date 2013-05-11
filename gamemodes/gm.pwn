@@ -1,4 +1,5 @@
 //++++NOTES+++++++++++++++++++++++++++++++++++++++
+// save skin needs finishing
 //====INCLUDES====================================
 #include <a_samp>
 #include <a_mysql>
@@ -39,6 +40,7 @@
 #define                     DEVELOPMENT_VERSION             "1.0.0"
 #define                     SERVER_NAME                     "WG FreeRoam/deathmatch"
 #define                     SERVER_SHORT_NAME               "WG "
+#define 					MAX_SERVER_NAMES 				10
 //----Spawnweapons--------------------------------------------------------------
 #define 					MAX_WEAPONS 					8
 #define 					MAX_WEAPON_NAME					32
@@ -82,6 +84,7 @@
 #define                     DIALOG_REGISTER2                    (23)
 #define 					DIALOG_SPEED 						(24)
 #define 					DIALOG_BUG_REPORT					(25)
+#define 					DIALOG_GMX              			(26)
 //----Mysql threads-------------------------------------------------------------
 #define                     THREAD_USERNAME_LOOKUP              (1)
 #define 					THREAD_USERNAME_REGISTER			(2)
@@ -105,6 +108,8 @@
 #define 					RANK_EXPERT							4
 #define 					RANK_ELITE							5
 #define 					RANK_FREAK							6
+//--Various Wait Timers--------------------------------------------------------------------
+#define 					TAXI_WAIT_TIME 						120000 // Time it takes until player can use taxi again.
 //--Music Defines---------------------------------------------------------------
 #define SOUND_CLASSSELECT       "http://pamp3.site40.net/sampfs/aggrosantoscandy.mp3"// Sound: Played during class selection.yep i stole this link
 //----speedup-------------------------------------------------------------------
@@ -166,6 +171,11 @@ forward LoadSaveablePlayerInfo(playerid);
 forward ResetPlayerInfo(playerid);
 forward news(message[]);
 forward KickPublic(playerid);
+forward ReSpawnVehicles();
+forward ServerNameUpdate();
+forward PlayerTaxiTimer(playerid);
+forward AllowTaxi(playerid);
+forward PlayerGiveCashDelay(playerid);
 forward OnQueryFinish(query[], resultid, extraid, connectionHandle);
 //ship stuff
 forward IsPlayerOnShip(cplayerID, Float:data[4]);
@@ -178,6 +188,9 @@ forward HidePlayerTextDraw(i);
 forward HideZoneName(playerid);
 //speed-up
 forward SpeedUp();
+//!!!!!!!!!!!will change this later!!!!!!!!!!!!!
+//gmx
+forward restartTimer();
 //====ENUMERATIONS & DECLARATIONS=================
 //====ENUMERATIONS================================
 enum GangInfoEnum
@@ -206,6 +219,7 @@ enum ePlayerData
 	Deaths,
 	Jails,
 	Kicks,
+	Skin,
 	PlayerStatus,
 	Checkpoint,
 	GangInvite,
@@ -222,6 +236,7 @@ enum ePlayerData
 	Float:PlayerSavedPos[3],
 	ResetToBackPos,
 	Speed,
+	PmStatus,
 	radio
 }
 
@@ -305,9 +320,22 @@ new ServerPrice[ServerPricesEnum] =
 	50,//was 20
 	5000,
 };
-
-
-
+//Server Name Changer-well sounded like a good idea at the time
+new CurrentServerName;
+new MainServerName[64] = "World-Gamerz Test Server";
+new ServerNames[MAX_SERVER_NAMES][64]=
+{
+	"World-Gamerz Freeroam DM Server",
+	"* Main",
+	"World-Gamerz FreeRoam DM Gangs Server",
+	"* Main",
+	"World-Gamerz Opening Soon",
+	"* Main",
+	"World-Gamerz Testing Server",
+	"* Main",
+	"World-Gamerz More Coming Soon",
+	"* Main"
+};
 //--Checkpoints-------------------------------------------------------------------------------------------------------
 new CP1,CP2,CP3,CP4,CP5,CP6,CP7,CP8,CP9,CP10,CP11;
 
@@ -335,6 +363,8 @@ new
 	lstring[28],
 	Text:ZoneText[MAX_PLAYERS],
 	ZnameTimer[MAX_PLAYERS],
+	PlayerTaxi[MAX_PLAYERS],
+	PlayerGiveCash[MAX_PLAYERS],
 	InfoBarText[6][68]=
 {
 		{"~y~/help~b~ - General help dialog"},
@@ -350,6 +380,10 @@ new const KEY_VEHICLE_FORWARD  = 0b001000,
           KEY_VEHICLE_BACKWARD = 0b100000;
 static playerSafe[MAX_PLAYERS];//ship stuff
 static seenSafeMsg[MAX_PLAYERS];
+//---i have put this here to change later
+//gmx	
+new iGMXTimer,
+	iGMXTick;
 //================================================
 native WP_Hash(buffer[], len, const str[]);
 //================================================
@@ -444,7 +478,7 @@ public OnGameModeInit()
     PLAYER_SLOTS = GetMaxPlayers();//speed-up
     g_SpeedUpTimer = SetTimer("SpeedUp", 220, true);
     g_SpeedThreshold = SPEED_THRESHOLD * SPEED_THRESHOLD;    // Cache this value for speed,This can not be done during compilation because of a limitation with float values
-	
+
 	return 1;
 }
 //------------------------------------------------------------------------------
@@ -574,6 +608,7 @@ public OnPlayerSpawn(playerid)
 	{
 		GiveMoney(playerid, POCKETMONEY);
 	}
+	
 	ResetPlayerWeapons(playerid);
 	GivePlayerWeapon(playerid,24,300);
 	TextDrawShowForPlayer(playerid, InfoBar);
@@ -640,6 +675,8 @@ public OnPlayerDeath(playerid, killerid, reason)
 		{
 			format(string, sizeof(string), "You have collected a bounty of $%d for killing %s.", playerVariables[playerid][Bounty], playerVariables[playerid][PlayerName]);
 			SendClientMessage(killerid, COLOR_BLUEVIOLET, string);
+			format(string, sizeof(string), "%s has collected a bounty of $%d for killing %s.", playerVariables[killerid][PlayerName], playerVariables[playerid][Bounty], playerVariables[playerid][PlayerName]);
+			news(string);
 			GiveMoney(killerid, playerVariables[playerid][Bounty]);
 			playerVariables[playerid][Bounty] = 0;
 		}
@@ -792,7 +829,7 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
 	{
 		playerVariables[playerid][Speed] = 0;
 	}
-	if(oldstate == PLAYER_STATE_ONFOOT && newstate == PLAYER_STATE_DRIVER) // Player entered a vehicle as a driver	//car stuff
+	if(oldstate == PLAYER_STATE_ONFOOT && newstate == PLAYER_STATE_DRIVER || newstate == PLAYER_STATE_PASSENGER) // Player entered a vehicle as a driver	//car stuff
 	{
 	    carname(playerid);
 	}
@@ -1658,7 +1695,20 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[]) {
 					SendClientMessage(playerid, COLOR_ORCHID, string);
 				}
 			}
-	}
+		case DIALOG_GMX:
+		{
+			if(IsPlayerAdmin(playerid))
+			{
+				if(!response)
+					return SendClientMessage(playerid, COLOR_GREY, "Restart attempt canned.");
+				SendClientMessage(playerid, COLOR_YELLOW, "---- SERVER RESTART ----");
+				SendClientMessage(playerid, COLOR_WHITE, "Restarting timer activated.");
+				iGMXTick = 11;
+				iGMXTimer = SetTimer("restartTimer", 1000, true);
+				return SendClientMessage(playerid, COLOR_YELLOW, "---- SERVER RESTART ----");
+			}
+		}
+		}
 	return 1;
 }
 //------------------------------------------------------------------------------
@@ -1712,6 +1762,9 @@ public OnQueryFinish(query[], resultid, extraid, connectionHandle)
 				
 				mysql_fetch_field_row(szReturn, "kicks", connectionHandle);
 				playerVariables[extraid][Kicks] = strval(szReturn);
+				
+				mysql_fetch_field_row(szReturn, "skin", connectionHandle);
+				playerVariables[playerid][Skin] = strval(szReturn);
 				
 				playerVariables[extraid][PlayerStatus] = 2;
 				mysql_free_result(connectionHandle);
@@ -1775,9 +1828,9 @@ public OnQueryFinish(query[], resultid, extraid, connectionHandle)
 			
 			mysql_free_result(dConnect);
 			
+			clearScreen(extraid);
 			playerVariables[extraid][PlayerStatus] = 1;
 			CheckPlayerRank(extraid);
-			clearScreen(extraid);
 			RegisterPlayer(extraid);
 		}
 		case THREAD_NO_RESULT:
@@ -2011,7 +2064,6 @@ public SpeedUp() {//speed-up
     }
 }
 //------------------------------------------------------------------------------
-//---------AntiCheat------------------------------
 public OnPlayerDeathByCheatkill(playerid, killerid, reason)
 {
 	if(killerid == INVALID_PLAYER_ID)
@@ -2037,7 +2089,6 @@ public OnPlayerDeathByCheatkill(playerid, killerid, reason)
 	return 0;
 }
 //------------------------------------------------------------------------------
-//---------AntiCheat------------------------------
 public JailAreaCheck(playerid)
 {
 	new Float:x, Float:y, Float:z;
@@ -2053,7 +2104,6 @@ public JailAreaCheck(playerid)
 	}
 }
 //------------------------------------------------------------------------------
-//---------AntiCheat------------------------------
 public LoginAreaCheck(playerid)
 {
 	new Float:x, Float:y, Float:z;
@@ -2069,7 +2119,6 @@ public LoginAreaCheck(playerid)
 	}
 }
 //------------------------------------------------------------------------------
-//---------AntiCheat------------------------------
 public MoneyCheatDetection()
 {
 	foreach(Player, i)
@@ -2253,6 +2302,9 @@ public UpdateIngameTimes()
 		{
 			playerVariables[i][IngameTime]++;
 			CheckPlayerRank(i);
+			#if defined DEBUG
+			printf("* CheckPlayerRank  *");
+			#endif
 		}
 	}
 }
@@ -2263,7 +2315,6 @@ public ReturnPlayerStats(playerid,giveplayerid)
 	new outputmessage[64];
 	SendClientMessage(playerid, COLOR_LIME, HORIZONTAL_RULE);
 	format(outputmessage, sizeof(outputmessage),"statistics for %s since %02d :", playerVariables[giveplayerid][PlayerName],playerVariables[giveplayerid][RegDate]);
-	printf("%02d,%s,%d",playerVariables[giveplayerid][RegDate]);
 	SendClientMessage(playerid, COLOR_YELLOW, outputmessage);
 	
 	new 
@@ -2348,7 +2399,7 @@ public CheckPlayerRank(playerid)
 		playerVariables[playerid][MaxBank] = 1000000;
 		if(playerVariables[playerid][IngameTime] == 600)
 		{
-			SendClientMessage(playerid, COLOR_YELLOWGREEN, "Congratulations, your rank is upgraded to go-getter!");
+			SendClientMessage(playerid, COLOR_YELLOWGREEN, "Congratulations, your rank is upgraded to Addict!");
 		}
 	}
 	else if(playerVariables[playerid][IngameTime] >= 1200 && playerVariables[playerid][IngameTime] < 1800)// Between 20 and 30 hours
@@ -2737,7 +2788,7 @@ public TaxiPlayer(playerid,newlocation)
 {
 	
 	new
-	outputmessage[42],
+	outputmessage[62],
 	Float:x,
 	Float:y,
 	Float:z,
@@ -2780,7 +2831,13 @@ public TaxiPlayer(playerid,newlocation)
 		{1570.8782,-1309.4750,17.1471}					//32:Los Santos Basejumping
 	};
 	
-	RemovePlayerFromVehicle(playerid);
+	if(PlayerTaxi[playerid] == 1)
+	{
+		format (outputmessage, sizeof(outputmessage), "You have recently taken a taxi, try again in a few minutes!");
+		SendClientMessage(playerid, COLOR_CRIMSON, outputmessage);
+		return 1;
+	}
+	
 	GetPlayerPos(playerid, x, y, z);
 	distance = GetDistance(x,y,z,taxiplaces[newlocation][0],taxiplaces[newlocation][1],taxiplaces[newlocation][2]);
 	cost = floatround((distance/400)*ServerPrice[Taxi], floatround_floor); //400 from 1000 because getdistance distance as the crow flies is.
@@ -2792,14 +2849,28 @@ public TaxiPlayer(playerid,newlocation)
 		return 1;
 	}
 	GiveMoney(playerid, -cost);
+	RemovePlayerFromVehicle(playerid);
 	new interior = floatround(taxiplaces[newlocation][3], floatround_floor);
 	SetPlayerInterior(playerid, interior);
 	SetPlayerPos(playerid,taxiplaces[newlocation][0],taxiplaces[newlocation][1],taxiplaces[newlocation][2]);
 	format (outputmessage, sizeof(outputmessage), "You have taken a taxi for $%d.", cost);
 	SendClientMessage(playerid, COLOR_HOTPINK, outputmessage);
-	
+	PlayerTaxi[playerid] = 1;
+	SetTimerEx("AllowTaxi", TAXI_WAIT_TIME, 0, "i", playerid);
 	return 1;
 	
+}
+//------------------------------------------------------------------------------
+public AllowTaxi(playerid)
+{
+	if(IsPlayerConnected(playerid))
+	{
+		if(PlayerTaxi[playerid] == 1)
+		{
+	    	PlayerTaxi[playerid] = 0;
+		}
+	}
+	return 1;
 }
 //------------------------------------------------------------------------------
 //---------Transport------------------------------
@@ -2868,6 +2939,7 @@ public RegisterPlayedPlayer(playerid)
 public LoginPlayer(playerid)
 {
 	//          let the player know he is spawned and shit
+	CheckPlayerRank(playerid);
 	SendClientMessage(playerid, COLOR_LEMONCHIFFON, "You've successfully logged in, have fun playing!");
 	SendClientMessage(playerid, COLOR_LEMONCHIFFON, "Type /help for a list of helpful stuff (IMPORTANT!)");
 	SendClientMessage(playerid, COLOR_LEMONCHIFFON, "Type /rules for the server (IMPORTANT READ!)");
@@ -2929,9 +3001,6 @@ public MainTimer()
 	
 	if (TickCount[AreaTimer] == 2)
 	{
-		#if defined DEBUG
-		printf("* AreaTimer working *");
-		#endif
 		SafeZone();
 		AreaCheckFunc();
 		update_zones();
@@ -2940,36 +3009,25 @@ public MainTimer()
 	
 	if (TickCount[TenSecTimer] == 10)
 	{
-		#if defined DEBUG
-		printf("* Ten_Sec_Timer working*");
-		#endif
+		ServerNameUpdate();
 		UnlockEmptyVehicles();
 		TickCount[TenSecTimer] = 0;
 	}
 	
 	if (TickCount[MinTimer] == 60)
 	{
-		#if defined DEBUG
-		printf("** Min_Timer working**");
-		#endif
-		UpdateIngameTimes();
-		SetVehicleToRespawn(53);
 		TickCount[MinTimer] = 0;
 	}
 	
 	if (TickCount[FiveMinTimer] == 300)
 	{
-		#if defined DEBUG
-		printf("*** Five_Min_Timer working ***");
-		#endif
+		UpdateIngameTimes();
+		ReSpawnVehicles();
 		TickCount[FiveMinTimer] = 0;
 	}
 	
 	if (TickCount[TenMinTimer] == 600)
 	{
-		#if defined DEBUG
-		printf("**** Ten_Min_Timer working ****");
-		#endif
 		BankInterest();
 		OperationSaveTheWorld();
 		TickCount[TenMinTimer] = 0;
@@ -2978,9 +3036,6 @@ public MainTimer()
 	
 	if (TickCount[FithTeenMinTimer] == 900)
 	{
-		#if defined DEBUG
-		printf("***** FithTeen_Min_Timer working *****");
-		#endif
 		TickCount[FithTeenMinTimer] = 0;
 	}
 	
@@ -3038,7 +3093,7 @@ public OperationSaveTheWorld()
 public CountDownFunction()
 {
 	new
-	counts[30];
+		counts[30];
 	
 	if(TickCount[CountDownTimer] > 0)
 	{
@@ -3058,7 +3113,10 @@ public CheckPlayerAFK()
 {
 	foreach(Player, i)
 {
-		new Float:x, Float:y, Float:z;
+		new 
+			Float:x,
+			Float:y,
+			Float:z;
 		GetPlayerPos(i, x, y, z);
 		
 		if(playerVariables[i][PlayerSavedPos][0] == x && playerVariables[i][PlayerSavedPos][1] == y && playerVariables[i][PlayerSavedPos][2] == z && !IsPlayerPaused(i) && IsPlayerLoggedIn(i))
@@ -3083,9 +3141,9 @@ public SafeZone()
 	{
             playerSafe[i] = 0;
             new
-			Float:x,
-			Float:y,
-			Float:z;
+				Float:x,
+				Float:y,
+				Float:z;
             GetPlayerPos(i, x, y, z);
                                                   
             if (x < 2008.2683 && x > 1994.6351 && y < 1571.3304 && y > 1516.6323 && z < 2250.000 && z > 0.000) playerSafe[i] = 1;//ship
@@ -3157,16 +3215,17 @@ the scriptfiles :-)
 */
 public OnQueryError(errorid, error[], callback[], query[], connectionHandle)
 {
-	new File:fhMySqlError,
-	writestr[100],
-	string[32],
-	tstring[20],
-	Year,
-	Month,
-	Day,
-	Hour,
-	Minute,
-	Second;
+	new 
+		File:fhMySqlError,
+		writestr[100],
+		string[32],
+		tstring[20],
+		Year,
+		Month,
+		Day,
+		Hour,
+		Minute,
+		Second;
 	
 	getdate(Year, Month, Day);
 	gettime(Hour, Minute, Second);
@@ -3190,7 +3249,7 @@ public Jail(playerid, time)
 	if (IsPlayerConnected(playerid))
 	{
 		new
-		outputmessage[125];
+			outputmessage[125];
 		
 		// The server will determine the time
 		if(time == 999)
@@ -3324,6 +3383,74 @@ public SetPlayerJailSpawn(playerid)
 	SetPlayerInterior(playerid,3);
 	SetPlayerPos(playerid, JailSpawns[rand], 174.5428, 1003.0234);
 }
+//------------------------------------------------------------------------------
+//!!!!!!!!!!!will change this later!!!!!!!!!!!!!
+//gmx
+public restartTimer()
+{
+    iGMXTick--;
+    switch(iGMXTick)
+	{
+        case 0:
+		{
+            GameTextForAll("~w~The server is now restarting...", 9000, 5);
+            SendClientMessageToAll(COLOR_LIGHTRED, "AdmCmd:{FFFFFF} The server is now set to restart, please wait for the server to restart.");
+			OperationSaveTheWorld();
+			cmd_KickAllGmx();
+            mysql_close(dConnect);// Close the handle. We're done here.
+            KillTimer(iGMXTimer);
+            SendRconCommand("gmx");
+			}
+        case 1: GameTextForAll("~w~The server will restart in...~n~ ~r~1~w~ second.", 1110, 5);
+        case 2: GameTextForAll("~w~The server will restart in...~n~ ~r~2~w~ seconds.", 1110, 5);
+        case 3: GameTextForAll("~w~The server will restart in...~n~ ~r~3~w~ seconds.", 1110, 5);
+        case 4: GameTextForAll("~w~The server will restart in...~n~ ~r~4~w~ seconds.", 1110, 5);
+        case 5: GameTextForAll("~w~The server will restart in...~n~ ~r~5~w~ seconds.", 1110, 5);
+        case 6: GameTextForAll("~w~The server will restart in...~n~ ~r~6~w~ second.", 1110, 5);
+        case 7: GameTextForAll("~w~The server will restart in...~n~ ~r~7~w~ seconds.", 1110, 5);
+        case 8: GameTextForAll("~w~The server will restart in...~n~ ~r~8~w~ seconds.", 1110, 5);
+        case 9: GameTextForAll("~w~The server will restart in...~n~ ~r~9~w~ seconds.", 1110, 5);
+        case 10: GameTextForAll("~w~The server will restart in...~n~ ~r~10~w~ seconds.", 1110, 5);
+		}
+    return 1;
+}
+//------------------------------------------------------------------------------
+public ReSpawnVehicles()
+{
+   for(new i; i < MAX_VEHICLES; i++) if(!IsVehicleOccupied(i)) SetVehicleToRespawn(i);
+   #if defined DEBUG
+   printf("All Un-Occupied Vehicles have been re-spawned");
+   #endif
+    return 1;
+}
+//------------------------------------------------------------------------------
+public ServerNameUpdate()
+{
+	if(CurrentServerName==MAX_SERVER_NAMES)
+		CurrentServerName=0;
+	
+	new
+	string[96];
+	if(ServerNames[CurrentServerName][0]=='*')
+		format(string,sizeof(string),"hostname %s",MainServerName);
+	else
+		format(string,sizeof(string),"hostname %s",ServerNames[CurrentServerName]);
+	SendRconCommand(string);
+	CurrentServerName++;
+	return 1;
+}
+//------------------------------------------------------------------------------
+public PlayerTaxiTimer(playerid)
+{
+    PlayerTaxi[playerid]= 0;
+    return 1;
+}
+//------------------------------------------------------------------------------
+public PlayerGiveCashDelay(playerid)
+{
+	PlayerGiveCash[playerid]=0;
+	return 1;
+}
 //====COMMANDS====================================
 CMD:mouse(playerid, params[])
 {
@@ -3334,7 +3461,7 @@ CMD:mouse(playerid, params[])
 CMD:help(playerid,params[])
 {
 	new
-	string[190];
+		string[190];
 	format(string, sizeof(string), "Type: /commands to list all available commands\nType: /rules to see the server rules.\nType: /playing for a insight to the server.\nType: /contact for questions and tips related to the server.");
 	ShowPlayerDialog(playerid, DIALOG_MSGBOX, DIALOG_STYLE_MSGBOX, "Welcome To World-Gamerz", string, "Close", "");
 	return 1;
@@ -3343,7 +3470,7 @@ CMD:help(playerid,params[])
 CMD:commands(playerid,params[])
 {
 	new
-	string[140];
+		string[140];
 	format(string, sizeof(string), "Type: /minigames\nType: /banking.\nType: /business.\nType: /transport.\nType: /ganghelp.\nType: /bounties.\nType: /rules.\nType: /misc ");
 	ShowPlayerDialog(playerid, DIALOG_MSGBOX, DIALOG_STYLE_MSGBOX, "Available commands", string, "Close", "");
 	return 1;
@@ -3352,7 +3479,7 @@ CMD:commands(playerid,params[])
 CMD:rules(playerid,params[])
 {
 	new
-	string[160];
+		string[160];
     format(string, sizeof(string), "SERVER RULES:\nDONT BUG ABUSE.\n\nCHEATS ARE NOT ALLOWED.\n\nNO KILLING IN INTERIORS.\n\nTHE SHIP IS A SAFE ZONE,NO KILLING.\n\nUSE ENGLISH IN MAIN CHAT");
 	ShowPlayerDialog(playerid, DIALOG_MSGBOX, DIALOG_STYLE_MSGBOX, "World-Gamerz Rules", string, "Close","");
 	return 1;
@@ -3361,7 +3488,7 @@ CMD:rules(playerid,params[])
 CMD:playing(playerid,params[])
 {
 	new
-	string[280];
+		string[280];
     format(string, sizeof(string), "This server aims to offer something for everyone!\nThe whole map is a deatmatch area,apart from the ship\nin LV and interiors.\nOr just cruise around in vehicles,\nbuy buisiness's and make money.\nBut just remember that anyone can shoot at you,what ever \nyou are doing!");
 	ShowPlayerDialog(playerid, DIALOG_MSGBOX, DIALOG_STYLE_MSGBOX, "Strategies", string, "Close","");
 	return 1;
@@ -3378,7 +3505,7 @@ CMD:contact(playerid,params[])
 CMD:Ranks(playerid,params[])
 {
 	new 
-	string[180];
+		string[180];
 	format(string, sizeof(string), "Player Ranks are based on you in-game time.\n0-10h:   Newbie\n10-20h:  go-getter\n20-30h:  master\n30-40h:  Pro\n40-50h:  Expert\n50-100h: Elite\n+100h:   Freak! ");
 	ShowPlayerDialog(playerid, DIALOG_MSGBOX, DIALOG_STYLE_MSGBOX, "Player Ranks", string, "Close", "");
 	return 1;
@@ -3396,7 +3523,7 @@ CMD:ganghelp(playerid,params[])
 CMD:gcommands(playerid,params[])
 {
 	new
-	string[230];
+		string[230];
 	format(string, sizeof(string), "Type: /gang create [name]\nType: /gang join\nType :/gang invite [playerid]\nType: /gang quit\nType: /gangs\nType: /ganginfo [number]\nType: /gbank [amount]\nType: /gopnemen [amount]\nType: /gbalance\n\nUse ! <for your gang-chat>");
 	ShowPlayerDialog(playerid, DIALOG_MSGBOX, DIALOG_STYLE_MSGBOX, "Gang commands", string, "Close", "");
 	return 1;
@@ -3404,7 +3531,7 @@ CMD:gcommands(playerid,params[])
 //------------------------------------------------------------------------------
 CMD:bounties(playerid,params[]){
 	new
-	string[100];
+		string[100];
 	format(string, sizeof(string), "If you want to place a price on some one's head,\nthen these are the command for you.\n or If you want to make fast money then you can kill that person. \nType: /hitman [playerid] [amount]\nType: bounty [playerid]\nType :/hitlist for Current Bounties\n");
 	return 1;
 }
@@ -3412,32 +3539,15 @@ CMD:bounties(playerid,params[]){
 CMD:hitman(playerid,params[])
 {
 		new 
-			tmp[256],
-			idx,
+			giveid,
 			string[125],
-			moneys,
-			giveplayerid,
-			giveplayer[MAX_PLAYER_NAME],
-			sendername[MAX_PLAYER_NAME];
+			moneys;
 			
-		tmp = strtok(params, idx);
-		GetPlayerName(giveplayerid, giveplayer, sizeof(giveplayer));
-		GetPlayerName(playerid, sendername, sizeof(sendername));
-		giveplayerid = strval(tmp);
-		if(!strlen(tmp))
+		if(sscanf(params,"ui",giveid,moneys))
 		{
-			SendClientMessage(playerid, COLOR_WHITE, "USAGE: /hitman [playerid] [amount]");
+			SendClientMessage(playerid, COLOR_WHITE, "USAGE: /hitman [playerid/partname] [amount]");
 			return 1;
 		}
-
-		tmp = strtok(params, idx);
-		if(!strlen(tmp))
-		{
-			SendClientMessage(playerid, COLOR_WHITE, "USAGE: /hitman [playerid] [amount]");
-			return 1;
-		}
- 		moneys = strval(tmp);
-
 	    if(moneys > GetPlayerMoney(playerid))
 		{
 			SendClientMessage(playerid, COLOR_RED, "You don't have enough money!");
@@ -3448,58 +3558,50 @@ CMD:hitman(playerid,params[])
 			SendClientMessage(playerid, COLOR_YELLOW, "Hey what are you trying to pull here.");
 			return 1;
 		}
-		if(IsPlayerConnected(giveplayerid)==0) 
+		if (giveid == INVALID_PLAYER_ID)
 		{
-			SendClientMessage(playerid, COLOR_RED, "No such player exists.");
+			SendClientMessage(playerid, COLOR_RED, "Dream on,There is no such player here.");
 			return 1;
 		}
 
-		playerVariables[giveplayerid][Bounty]+=moneys;
+		playerVariables[giveid][Bounty]+=moneys;
 		GivePlayerMoney(playerid, 0-moneys);
 
-		GetPlayerName(giveplayerid, giveplayer, sizeof(giveplayer));
-		GetPlayerName(playerid, sendername, sizeof(sendername));
+
+		format(string, sizeof(string), "%s has had a $%d bounty put on his head from %s (total: $%d).", playerVariables[giveid][PlayerName], moneys, playerVariables[playerid][PlayerName], playerVariables[giveid][Bounty]);
+		news(string);
 
 
-		format(string, sizeof(string), "%s has had a $%d bounty put on his head from %s (total: $%d).", giveplayer, moneys, sendername, playerVariables[giveplayerid][Bounty]);
-		SendClientMessageToAll(COLOR_ORANGE, string);
-
-
-		format(string, sizeof(string), "You have had a $%d bounty put on you from %s (id: %d).", moneys, sendername, playerid);
-		SendClientMessage(giveplayerid, COLOR_RED, string);
+		format(string, sizeof(string), "You have had a $%d bounty put on you from %s (id: %d).", moneys, playerid, playerVariables[playerid][PlayerName]);
+		SendClientMessage(giveid, COLOR_RED, string);
 		return 1;
 	}
-
 //------------------------------------------------------------------------------
 CMD:bounty(playerid,params[])
 {
-	    new 
-			tmp[256],
-			giveplayerid,
-			giveplayer[MAX_PLAYER_NAME],
-			string[125],
-			idx;
-		tmp = strtok(params, idx);
-
-		if(!strlen(tmp))
-		{
-			SendClientMessage(playerid, COLOR_WHITE, "USAGE: /bounty [playerid]");
-			return 1;
-		}
-		giveplayerid = strval(tmp);
-		
-		if(IsPlayerConnected(giveplayerid))
-		{
-			GetPlayerName(giveplayerid, giveplayer, sizeof(giveplayer));
-			format(string, sizeof(string), "Player %s (id: %d) has a  $%d bounty on his head.", giveplayer,giveplayerid,playerVariables[giveplayerid][Bounty]);
-			SendClientMessage(playerid, COLOR_YELLOW, string);
-		}
-		else
-		{
-			SendClientMessage(playerid, COLOR_RED, "No such player exists!");
-		}
-		
+	new
+	giveid,
+	string[125];
+	
+	if (sscanf(params, "u", giveid))
+	{
+		format(string, sizeof(string), "Usage: /givecash [playerid/partname]");
+		SendClientMessage(playerid, COLOR_SNOW, string);
 		return 1;
+	}
+	if (giveid == INVALID_PLAYER_ID)
+	{
+		format(string, sizeof(string), "ID: %d I know he's not here!", giveid);
+		SendClientMessage(playerid, COLOR_SNOW, string);
+	}
+	
+	else
+	{
+		format(string, sizeof(string), "%s (id: %d) has a $%d bounty on his head.", playerVariables[giveid][PlayerName],giveid,playerVariables[giveid][Bounty]);
+		SendClientMessage(playerid, COLOR_YELLOW, string);
+	}
+	
+	return 1;
 }
 //------------------------------------------------------------------------------
 CMD:hitlist(playerid,params[])
@@ -3508,11 +3610,12 @@ CMD:hitlist(playerid,params[])
 	x,
 	giveplayer[MAX_PLAYER_NAME],
 	string[75];
+	
 	SendClientMessage(playerid, COLOR_LIME, HORIZONTAL_RULE);
-	SendClientMessage(playerid, COLOR_GREEN, "Current Bounties:");
-	for(new i=0; i < MAX_PLAYERS; i++)
+	SendClientMessage(playerid, COLOR_LAVENDER, "Current Bounties:");
+	foreach (Player, i)
 	{
-		if(IsPlayerConnected(i) && playerVariables[i][Bounty] > 0)
+		if(playerVariables[i][Bounty] > 0)
 		{
 			GetPlayerName(i, giveplayer, sizeof(giveplayer));
 			format(string, sizeof(string), "%s%s(%d): $%d", string,giveplayer,i,playerVariables[i][Bounty]);
@@ -3541,7 +3644,7 @@ CMD:hitlist(playerid,params[])
 CMD:banking(playerid,params[])
 {
 	new
-	string[340];
+		string[340];
 	format(string, sizeof(string), "You seriously dont want to be walking around with lots of money on you,\nbecause if you die you will lose all of your money.\nSo put your money in the Bank,there are plenty of \nthem around,just look out for the money icon on your map.\nPlus for any money in your account \nyou will recieve 1% interest every 15 minutes of playing");
 	ShowPlayerDialog(playerid, DIALOG_MSGBOX, DIALOG_STYLE_MSGBOX, "banking", string, "Close", "");
 	return 1;
@@ -3550,7 +3653,7 @@ CMD:banking(playerid,params[])
 CMD:transport(playerid,params[])
 {
 	new
-	string[250];
+		string[250];
 	format(string, sizeof(string), "If you get stuck somewhere in san andreas,then dont worry call a taxi,\njust type: /taxi and you will be shown a list of locations.\nBut this is not a free service.\nBut the train network is free and is available\nat any one of the four stations.");
 	ShowPlayerDialog(playerid, DIALOG_MSGBOX, DIALOG_STYLE_MSGBOX, "Transport", string, "Close", "");
 	return 1;
@@ -3559,7 +3662,7 @@ CMD:transport(playerid,params[])
 CMD:misc(playerid,params[])
 {
 	new 
-	string[150];
+		string[150];
 	format(string, sizeof(string), "Type: /skyfall\nType: /chillidog\nType: /pm [id] [message]\nType: /givemoney [id] [amount]\nType: /pause\nType: /lock or /open(vehicle doors)");
 	ShowPlayerDialog(playerid, DIALOG_MSGBOX, DIALOG_STYLE_MSGBOX, "Misc commands", string, "Close", "");
 	return 1;
@@ -3570,10 +3673,57 @@ CMD:taxi(playerid,params[])
 	if(!IsPlayerJailed(playerid) && !IsPlayerPaused(playerid))
 	{
 	new
-	string[600];
+		string[600];
 	strcat(string,"Pirate ship \nYellow Bell Station(LV) \nLinden Station(LV) \nMarket Station(LS) \nUnity Station(LS) \nCranberry Station \nLas Venturas Airport \nprison \nGrove Street \nWang Cars \nMount Chilliad \nPolice Station \nAmmunition(East LV) \nAmmunition(South LV) \nArea 69 \nAirstrip \nFort Carson");
 	strcat(string,"\nLas Barrancas \nEl Quebrados \nLas Payasadas \nBayside	\nPalomino Creek \nHampton Barns \nBlueberry \nDillimore \nLeafy Hollow \nLos Santos Airport \nKACC Military Fuels \nAngel Pine \nEaster Bay Airport \nSan Fierro Airport \nDowntown Los Santos \nLos Santos Basejumping");
 	ShowPlayerDialog(playerid,DIALOG_TAXI,DIALOG_STYLE_LIST,"Welcome To San Andreas Taxi's",string,"Taxi", "Cancel");
+	}
+	return 1;
+}
+//-----------------------------------------------------------------------------
+CMD:seepms(playerid, params[]) {
+	switch(playerVariables[playerid][PmStatus]) {
+		case 0: {
+		    playerVariables[playerid][PmStatus] = 1;
+			return SendClientMessage(playerid, COLOR_WHITE, "You have disabled your PMs.");
+		}
+		case 1: {
+		    playerVariables[playerid][PmStatus] = 0;
+			return SendClientMessage(playerid, COLOR_WHITE, "You have enabled your PMs.");
+		}
+	}
+	return 1;
+}
+//------------------------------------------------------------------------------
+CMD:pm(playerid, params[])
+{
+	new
+	PmMessage[128],
+	OutPutMessage[128],
+	giveid;
+	
+	if(sscanf(params, "us[128]", giveid, PmMessage))
+	{
+		SendClientMessage(playerid, COLOR_SNOW,"USAGE: /pm [playerid/partname] [message]");
+		return 1;
+	}
+	if (giveid == INVALID_PLAYER_ID)
+	{
+		format(OutPutMessage, sizeof(OutPutMessage), "ID: %d I know he's not here!", giveid);
+		SendClientMessage(playerid, COLOR_SNOW, OutPutMessage);
+	}
+	
+	if(playerVariables[giveid][PmStatus] == 0) {
+		OnPlayerPrivmsg(playerid, giveid, PmMessage);
+/*	
+		format(OutPutMessage, sizeof(OutPutMessage), "(( PM from %s: %s ))", playerVariables[playerid][PlayerName], PmMessage);
+		SendClientMessage(giveid, COLOR_YELLOW, OutPutMessage);
+		format(OutPutMessage, sizeof(OutPutMessage), "(( PM sent to %s: %s ))", playerVariables[giveid][PlayerName], PmMessage);
+		SendClientMessage(playerid, COLOR_GREY, OutPutMessage);
+*/		
+	}
+	else {
+		return SendClientMessage(playerid, COLOR_GREY, "That player's PMs aren't enabled.");
 	}
 	return 1;
 }
@@ -3633,7 +3783,7 @@ CMD:unlock(playerid,params[])
 CMD:stats(playerid,params[])
 {
 	new
-	player1;
+		player1;
 	if(isnull(params)) player1 = playerid;
 	else player1 = strval(params);
 	if(IsPlayerConnected(player1))
@@ -3680,7 +3830,7 @@ CMD:pause(playerid,params[])
 CMD:chillidog(playerid,params[])
 {
 	new 
-	Float:health;
+		Float:health;
 	if(IsPlayerInRangeOfPoint(playerid, 3, 2000.8953, 1554.2316, 14.4390))
 	{
 		if(GetPlayerMoney(playerid) < 1000) 
@@ -3716,10 +3866,10 @@ CMD:skyfall(playerid,params[])
 	if(!IsPlayerJailed(playerid) && !IsPlayerPaused(playerid))
 	{
 	new
-	outputmessage[80],
-	Float:x,
-	Float:y,
-	Float:z;
+		outputmessage[80],
+		Float:x,
+		Float:y,
+		Float:z;
 
 	if(GetPlayerMoney(playerid) < ServerPrice[Skydive])
 	{
@@ -3763,7 +3913,19 @@ CMD:givecash(playerid,params[])
 	moneys,
 	string[64];
 	
-	if (sscanf(params, "ud", giveid, moneys)) return SendClientMessage(playerid, COLOR_SNOW, "Usage: /givecash [playerid/partname] [amount]");
+	if (sscanf(params, "ud", giveid, moneys))
+	{
+		format(string, sizeof(string), "Usage: /givecash [playerid/partname] [amount]");
+		SendClientMessage(playerid, COLOR_SNOW, string);
+		return 1;
+	} 
+	
+	if(PlayerGiveCash[playerid]==1)
+	{
+		format(string, sizeof(string), "*** You can only send money once every 60 seconds.");
+		SendClientMessage(playerid, COLOR_SNOW, string);
+		return 1;
+	}
 	else if (giveid == INVALID_PLAYER_ID)
 	{
 		format(string, sizeof(string), "ID: %d I know he's not here!", giveid);
@@ -3774,10 +3936,12 @@ CMD:givecash(playerid,params[])
 	{
 		GiveMoney(playerid, -moneys);
 		GiveMoney(giveid, moneys);
-		format(string, sizeof(string), "you've %s (id: %d) $%d given.", playerVariables[giveid][PlayerName],giveid, moneys);
+		format(string, sizeof(string), "you've given %s (id: %d) $%d.", playerVariables[giveid][PlayerName],giveid, moneys);
 		SendClientMessage(playerid, COLOR_ORANGE, string);
-		format(string, sizeof(string), "you've $%d received from %s (id: %d).", moneys, playerVariables[playerid][PlayerName], playerid);
+		format(string, sizeof(string), "you've received $%d from %s (id: %d).", moneys, playerVariables[playerid][PlayerName], playerid);
 		SendClientMessage(giveid, COLOR_ORANGERED, string);
+		PlayerGiveCash[playerid]=1;
+		SetTimerEx("PlayerGiveCashDelay",60000,false,"i",playerid);
 	}
 	return 1;
 }
@@ -3792,8 +3956,8 @@ CMD:gang(playerid,params[])
 CMD:gangs(playerid,params[])
 {
 	new 
-	x,
-	string[256];
+		x,
+		string[256];
 	
 	for(new i=0; i < MAX_GANGS; i++) 
 	{
@@ -3840,6 +4004,55 @@ CMD:bug(playerid,params[])
 		ShowPlayerDialog(playerid, DIALOG_BUG_REPORT, DIALOG_STYLE_INPUT, "SERVER: Bug Report", szMessage, "Submit", "Cancel");
 		return 1;
 }
+//------------------------------------------------------------------------------
+CMD:saveskin(playerid, params[])
+{
+	if(playerVariables[playerid][PlayerStatus] == 0)
+	{
+		SendClientMessage(playerid, COLOR_MEDIUMVIOLETRED, "You must be logged in to use this command");
+		return 1;
+	}
+	if(playerVariables[playerid][IngameTime] >= 600)// over 10 hours
+	{
+		SendClientMessage(playerid, COLOR_YELLOWGREEN, "You must be Ranked higher to use this command");
+		return 1;
+	}
+	playerVariables[playerid][Skin] = GetPlayerSkin(playerid);
+	SaveSaveablePlayerInfo(playerid);
+	return 1;
+}
+
+//------------------------------------------------------------------------------
+//----Admin Commands
+//------------------------------------------------------------------------------
+CMD:gmx(playerid, params[]) 
+{
+    if(IsPlayerAdmin(playerid))
+	{	
+		ShowPlayerDialog(playerid, DIALOG_GMX, DIALOG_STYLE_MSGBOX, ""#CRED"Server Restart", ""#CYELLOW"Please confirm whether you are positive that you wish to initiate a server restart?", "Yes", "No");
+		}
+    return 1;
+}
+//------------------------------------------------------------------------------
+CMD:rac(playerid, params[])
+{
+	#pragma unused params
+	if(IsPlayerAdmin(playerid))
+	{
+		ReSpawnVehicles();
+	}
+	return 1;
+}
+//------------------------------------------------------------------------------
+CMD:KickAllGmx()//this is only used for gmx command
+{
+    foreach (Player, i)
+    {
+        Kick(i);
+    }
+    return true;
+}
+
 //====STOCKS======================================
 stock clearScreen(playerid)
  {
@@ -3954,6 +4167,7 @@ stock ResetPlayerVariables(playerid)
 	playerVariables[playerid][Deaths] = 0;
 	playerVariables[playerid][Jails] = 0;
 	playerVariables[playerid][Kicks] = 0;
+	playerVariables[playerid][Skin] = 0;
 	playerVariables[playerid][NotLoggedInTime] = 0;
 	playerVariables[playerid][FirstTimeSpawned] = 1;
 	playerVariables[playerid][PlayerRanking] = RANK_STARTER;
@@ -3963,16 +4177,19 @@ stock ResetPlayerVariables(playerid)
 	playerVariables[playerid][PlayerSavedPos][2] = 0.0;
 	playerVariables[playerid][ResetToBackPos] = 0;
 	playerVariables[playerid][Speed] = 0;
-	
+	playerVariables[playerid][PmStatus] = 0;
+	PlayerTaxi[playerid] = 0;
+	PlayerGiveCash[playerid]=0;	
 	return 1;
 }
 //------------------------------------------------------------------------------
 stock SecondsToTime(seconds)
 {
-	new timeminutes,
-	timeseconds,
-	timesecondsstr[2],
-	time[8];
+	new 
+		timeminutes,
+		timeseconds,
+		timesecondsstr[2],
+		time[8];
 	
 	timeminutes = floatround(seconds/60, floatround_floor);
 	timeseconds = seconds - (timeminutes*60);
@@ -3989,13 +4206,14 @@ stock SecondsToTime(seconds)
 //------------------------------------------------------------------------------
 stock SaveSaveablePlayerInfo(playerid)
 {
-	new szQuery[512],//512 Since we're going to save a lot of data, our query size will need to be big.
-	cash = GetPlayerMoney(playerid),
-	string[64],
-	Year,
-	Month,
-	Day,
-	bank = playerVariables[playerid][Bank];
+	new 
+		szQuery[512],//512 Since we're going to save a lot of data, our query size will need to be big.
+		cash = GetPlayerMoney(playerid),
+		string[64],
+		Year,
+		Month,
+		Day,
+		bank = playerVariables[playerid][Bank];
 	
 	if(cash > MAX_PLAYER_SPAWNCASH) 
 	{
@@ -4011,7 +4229,7 @@ stock SaveSaveablePlayerInfo(playerid)
 	format(string, sizeof(string), "%02d,%s,%d", Day, GetMonth(Month), Year);
 	format(szQuery, sizeof(szQuery), "UPDATE players SET cash = %d, bank = %d, jailTime = %d, laston = '%s'", cash, playerVariables[playerid][Bank], playerVariables[playerid][JailTime], string);
 	format(szQuery, sizeof(szQuery),"%s, ingameTime = %d,kills = %d,deaths = %d,jails = %d,kicks = %d", szQuery, playerVariables[playerid][IngameTime], playerVariables[playerid][Kills], playerVariables[playerid][Deaths], playerVariables[playerid][Jails], playerVariables[playerid][Kicks]);
-	format(szQuery, sizeof(szQuery),"%s WHERE ID = %d", szQuery, playerVariables[playerid][pDBID]);	
+	format(szQuery, sizeof(szQuery),"%s, skin = %d WHERE ID = %d", szQuery, playerVariables[playerid][Skin], playerVariables[playerid][pDBID]);	
 	mysql_query(szQuery, THREAD_NO_RESULT, playerid, dConnect);
 	return 1;
 }
@@ -4116,6 +4334,15 @@ stock KickPlayer(playerid, reason[])
 	KickWithMessage(playerid, reason);
 	return 1;
 }
+//------------------------------------------------------------------------------
+stock IsVehicleOccupied(vehicleid)
+{
+	foreach(Player, i)
+    {
+        if(GetPlayerVehicleID(i) == vehicleid) return 1;
+    }
+    return 0;
+}
 //================================================
 LoadTextDraws()
 {
@@ -4186,8 +4413,6 @@ LoadTextDraws()
 	TextDrawBoxColor(MainMenu[3], 0x1564F5FF);
 	TextDrawTextSize(MainMenu[3], -5.000000, 1031.000000);
 }
-
-
 //================================================	
 /*
 =============		  =========== 			===============	
