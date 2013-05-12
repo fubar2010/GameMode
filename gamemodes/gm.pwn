@@ -1,5 +1,5 @@
 //++++NOTES+++++++++++++++++++++++++++++++++++++++
-// save skin needs finishing
+// 
 //====INCLUDES====================================
 #include <a_samp>
 #include <a_mysql>
@@ -220,6 +220,7 @@ enum ePlayerData
 	Jails,
 	Kicks,
 	Skin,
+	UseSkin,
 	PlayerStatus,
 	Checkpoint,
 	GangInvite,
@@ -310,9 +311,9 @@ new ListPlayerClasses[] =
 	181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199,200,201,202,
 	203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,
 	225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,246,
-	247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,
-	269,270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,285,286,287,288,289,290,
-	291,292,293,294,295,296,297,298,299
+	247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,265,266,267,268,269,
+	270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,285,286,287,288,289,290,291,
+	292,293,294,295,296,297,298,299
 };
 
 new ServerPrice[ServerPricesEnum] =
@@ -570,8 +571,13 @@ public OnPlayerDisconnect(playerid, reason)
 public OnPlayerSpawn(playerid)
 {
 	ToggleMainMenu(playerid, 0);
+	PlayerPlaySound(playerid, 1184,-752.7885,464.6060,1369.0648);
+	if(playerVariables[playerid][UseSkin] == 1)
+	{
+		SetPlayerSkin(playerid,playerVariables[playerid][Skin]);
+	}	
 	if(!IsPlayerLoggedIn(playerid))
-	{	
+	{
 		PlayerPlaySound(playerid, 1184,-752.7885,464.6060,1369.0648);
 //		StopAudioStreamForPlayer(playerid);
 		SetPlayerInterior(playerid, 12);
@@ -586,6 +592,7 @@ public OnPlayerSpawn(playerid)
 		mysql_query(szQuery, THREAD_USERNAME_LOOKUP, playerid, dConnect);
 		return 1;
 	}
+	
 	SetPlayerInterior(playerid,0);
 	// in jail?
 	if(IsPlayerJailed(playerid))
@@ -1764,7 +1771,10 @@ public OnQueryFinish(query[], resultid, extraid, connectionHandle)
 				playerVariables[extraid][Kicks] = strval(szReturn);
 				
 				mysql_fetch_field_row(szReturn, "skin", connectionHandle);
-				playerVariables[playerid][Skin] = strval(szReturn);
+				playerVariables[extraid][Skin] = strval(szReturn);
+				
+				mysql_fetch_field_row(szReturn, "useskin", connectionHandle);
+				playerVariables[extraid][UseSkin] = strval(szReturn);
 				
 				playerVariables[extraid][PlayerStatus] = 2;
 				mysql_free_result(connectionHandle);
@@ -1826,6 +1836,12 @@ public OnQueryFinish(query[], resultid, extraid, connectionHandle)
 			mysql_fetch_field_row(szReturn, "gang", connectionHandle);
 			playerVariables[extraid][Gang] = strval(szReturn);
 			
+			mysql_fetch_field_row(szReturn, "skin", connectionHandle);
+			playerVariables[extraid][Skin] = strval(szReturn);
+				
+			mysql_fetch_field_row(szReturn, "useskin", connectionHandle);
+			playerVariables[extraid][UseSkin] = strval(szReturn);			
+			
 			mysql_free_result(dConnect);
 			
 			clearScreen(extraid);
@@ -1864,6 +1880,7 @@ public OnQueryFinish(query[], resultid, extraid, connectionHandle)
 			}
 			else
 			{
+			//lets do nothing,i like
 			}
 			
 			mysql_free_result(connectionHandle);
@@ -1872,7 +1889,7 @@ public OnQueryFinish(query[], resultid, extraid, connectionHandle)
 	return 1;
 }
 //------------------------------------------------------------------------------
-public news(message[])//news-message
+public news(message[])//news-message/im going to send this to irc @ some point
 {
 	new string[256];
 	SendClientMessageToAll(COLOR_LIME, HORIZONTAL_RULE);	
@@ -3397,7 +3414,7 @@ public restartTimer()
             SendClientMessageToAll(COLOR_LIGHTRED, "AdmCmd:{FFFFFF} The server is now set to restart, please wait for the server to restart.");
 			OperationSaveTheWorld();
 			cmd_KickAllGmx();
-            mysql_close(dConnect);// Close the handle. We're done here.
+            mysql_close(dConnect);// Close the database connection. We're done here.
             KillTimer(iGMXTimer);
             SendRconCommand("gmx");
 			}
@@ -4007,21 +4024,45 @@ CMD:bug(playerid,params[])
 //------------------------------------------------------------------------------
 CMD:saveskin(playerid, params[])
 {
-	if(playerVariables[playerid][PlayerStatus] == 0)
+	if(playerVariables[playerid][PlayerStatus] !=STATUS_NONE)
 	{
 		SendClientMessage(playerid, COLOR_MEDIUMVIOLETRED, "You must be logged in to use this command");
 		return 1;
 	}
+	
 	if(playerVariables[playerid][IngameTime] >= 600)// over 10 hours
 	{
-		SendClientMessage(playerid, COLOR_YELLOWGREEN, "You must be Ranked higher to use this command");
+		playerVariables[playerid][Skin] = GetPlayerSkin(playerid);
+		playerVariables[playerid][UseSkin] = 1;
+		SaveSaveablePlayerInfo(playerid);
+		SendClientMessage(playerid, COLOR_YELLOWGREEN, "You Have Saved Your Skin");
 		return 1;
 	}
-	playerVariables[playerid][Skin] = GetPlayerSkin(playerid);
-	SaveSaveablePlayerInfo(playerid);
+	
+	SendClientMessage(playerid, COLOR_YELLOWGREEN, "You must be Ranked higher to use this command");
 	return 1;
 }
-
+//------------------------------------------------------------------------------
+CMD:unsaveskin(playerid, params[])
+{
+	if(playerVariables[playerid][PlayerStatus] !=STATUS_NONE)
+	{
+		SendClientMessage(playerid, COLOR_MEDIUMVIOLETRED, "You must be logged in to use this command");
+		return 1;
+	}
+	
+	if(playerVariables[playerid][UseSkin] == 1)
+	{
+		playerVariables[playerid][Skin] = 0;
+		playerVariables[playerid][UseSkin] = 0;
+		SaveSaveablePlayerInfo(playerid);
+		SendClientMessage(playerid, COLOR_YELLOWGREEN, "You Have Un Saved Your Skin");
+		return 1;
+	}
+	
+	SendClientMessage(playerid, COLOR_YELLOWGREEN, "You Freak,You never saved your skin in the first place");
+	return 1;
+}
 //------------------------------------------------------------------------------
 //----Admin Commands
 //------------------------------------------------------------------------------
@@ -4168,6 +4209,7 @@ stock ResetPlayerVariables(playerid)
 	playerVariables[playerid][Jails] = 0;
 	playerVariables[playerid][Kicks] = 0;
 	playerVariables[playerid][Skin] = 0;
+	playerVariables[playerid][UseSkin] = 0;
 	playerVariables[playerid][NotLoggedInTime] = 0;
 	playerVariables[playerid][FirstTimeSpawned] = 1;
 	playerVariables[playerid][PlayerRanking] = RANK_STARTER;
@@ -4229,7 +4271,7 @@ stock SaveSaveablePlayerInfo(playerid)
 	format(string, sizeof(string), "%02d,%s,%d", Day, GetMonth(Month), Year);
 	format(szQuery, sizeof(szQuery), "UPDATE players SET cash = %d, bank = %d, jailTime = %d, laston = '%s'", cash, playerVariables[playerid][Bank], playerVariables[playerid][JailTime], string);
 	format(szQuery, sizeof(szQuery),"%s, ingameTime = %d,kills = %d,deaths = %d,jails = %d,kicks = %d", szQuery, playerVariables[playerid][IngameTime], playerVariables[playerid][Kills], playerVariables[playerid][Deaths], playerVariables[playerid][Jails], playerVariables[playerid][Kicks]);
-	format(szQuery, sizeof(szQuery),"%s, skin = %d WHERE ID = %d", szQuery, playerVariables[playerid][Skin], playerVariables[playerid][pDBID]);	
+	format(szQuery, sizeof(szQuery),"%s, skin = %d ,useskin = %d WHERE ID = %d", szQuery, playerVariables[playerid][Skin], playerVariables[playerid][UseSkin], playerVariables[playerid][pDBID]);	
 	mysql_query(szQuery, THREAD_NO_RESULT, playerid, dConnect);
 	return 1;
 }
@@ -4264,22 +4306,6 @@ stock ToggleMainMenu(playerid, toggle)
 	}
 	return 1;
 }	
-//------------------------------------------------------------------------------
-stock IsValidSkin(skinid)
-{
-	#define	MAX_BAD_SKINS  14
-	new badSkins[MAX_BAD_SKINS] = 
-	{
-		3, 4, 5, 6, 8, 42, 65, 74, 86,
-		119, 149, 208, 273, 289};
-	if  (skinid < 0 || skinid > 299) return false;
-	for (new i = 0; i < MAX_BAD_SKINS; i++) 
-	{
-	    if (skinid == badSkins[i]) return false;
-		}
-	#undef MAX_BAD_SKINS
-	return true;
-}
 //------------------------------------------------------------------------------
 stock randomEx(min, max)
 {    
