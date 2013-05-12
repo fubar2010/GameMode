@@ -1,6 +1,6 @@
 echo Executing Server Config...
 lanmode 0
-rcon_password chocolate
+rcon_password ChangeMe
 maxplayers 50
 port 6666
 plugins crashdetect.so mysql.so sscanf.so streamer.so Whirlpool.so GeoIP_Plugin.so

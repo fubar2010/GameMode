@@ -1,1 +1,4 @@
-World-Gamerz|localhost|root|pathfinder
+!Lay out would be
+Database Name|Database Connection|Database UserName|Database Password
+Example
+test|localhost|root|<PASSWORD>
