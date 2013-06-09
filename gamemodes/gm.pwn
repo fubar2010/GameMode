@@ -3519,7 +3519,7 @@ CMD:contact(playerid,params[])
 	return 1;
 }
 //------------------------------------------------------------------------------
-CMD:Ranks(playerid,params[])
+CMD:ranks(playerid,params[])
 {
 	new 
 		string[180];
@@ -3679,8 +3679,9 @@ CMD:transport(playerid,params[])
 CMD:misc(playerid,params[])
 {
 	new 
-		string[150];
-	format(string, sizeof(string), "Type: /skyfall\nType: /chillidog\nType: /pm [id] [message]\nType: /givemoney [id] [amount]\nType: /pause\nType: /lock or /open(vehicle doors)");
+		string[415];
+	format(string, sizeof(string), "Type: /skyfall\nType: /chillidog\nType: /pm [id/part name] [message]\nType: /seepms (Turns your pm on/off\nType: /givecash [id/part name] [amount]\nType: /pause\nType: /lock or /open(vehicle doors)\nType: /unsaveskin or /saveskin to save your skin in use for future use\nType: /speed (turn on/off increase in vehicle speed)\nType: /countdown (Starts a countdown)\nType: /stats (Show your stats or a players stats)");	
+//	format(string, sizeof(string), "Type: /skyfall\nType: /chillidog\nType: /pm [id] [message]\nType: /givemoney [id] [amount]\nType: /pause\nType: /lock or /open(vehicle doors)");
 	ShowPlayerDialog(playerid, DIALOG_MSGBOX, DIALOG_STYLE_MSGBOX, "Misc commands", string, "Close", "");
 	return 1;
 }
@@ -3905,24 +3906,6 @@ CMD:skyfall(playerid,params[])
 	return 1;
 }
 //------------------------------------------------------------------------------
-CMD:setname(playerid, params[]) 
-{
-	new
-	szQuery[128],
-	Player,
-	NewPlayerName[MAX_PLAYER_NAME];
-	
-	if(sscanf(params, "us[24]", Player, NewPlayerName))
-		return SendClientMessage(playerid, COLOR_SNOW, "SERVER: /setname [playerid] [new name]");
-	SetPVarInt(Player, "changeBy", playerid);
-	SetPVarString(Player, "oldName", playerVariables[Player][PlayerName]);
-	mysql_real_escape_string(NewPlayerName, playerVariables[Player][PlayerName], 24);
-	format(szQuery, sizeof(szQuery), "UPDATE players SET Username = '%s' WHERE ID = %d", playerVariables[Player][PlayerName], playerVariables[Player][pDBID]);
-	mysql_query(szQuery, THREAD_CHANGE_NAME, Player, dConnect);
-	
-	return 1;
-}
-//------------------------------------------------------------------------------
 CMD:givecash(playerid,params[])
 {
 	new 
@@ -4093,7 +4076,25 @@ CMD:KickAllGmx()//this is only used for gmx command
     }
     return true;
 }
-
+//------------------------------------------------------------------------------
+CMD:setname(playerid, params[]) 
+{
+	new
+	szQuery[128],
+	Player,
+	NewPlayerName[MAX_PLAYER_NAME];
+	if(IsPlayerAdmin(playerid))
+	{	
+	if(sscanf(params, "us[24]", Player, NewPlayerName))
+		return SendClientMessage(playerid, COLOR_SNOW, "SERVER: /setname [playerid] [new name]");
+	SetPVarInt(Player, "changeBy", playerid);
+	SetPVarString(Player, "oldName", playerVariables[Player][PlayerName]);
+	mysql_real_escape_string(NewPlayerName, playerVariables[Player][PlayerName], 24);
+	format(szQuery, sizeof(szQuery), "UPDATE players SET Username = '%s' WHERE ID = %d", playerVariables[Player][PlayerName], playerVariables[Player][pDBID]);
+	mysql_query(szQuery, THREAD_CHANGE_NAME, Player, dConnect);
+	}
+	return 1;
+}
 //====STOCKS======================================
 stock clearScreen(playerid)
  {

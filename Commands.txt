@@ -1,0 +1,68 @@
+					SERVER COMMAND LIST FOR PLAYERS ONLY
+This is a list of all commands in the gm.the more commands added the more this list will grow.
+
+COMMAND								DESCRIPTION
+mouse			-		Doesn't do much really(may use for textdraw selects laters)
+help			-		pretty obvious
+commands		-		Show a list of commands,a bit like this page :-)
+rules			-		A must for any server.
+playing			-		This commands show players an insight in to how to play on the server.
+contact			-		How to get in contact with world-gamerz
+ranks			-		A list of player ranks and hours required(See notes at end of this list)
+ganghelp		-		A insight into how to make a gang or join a gang
+gcommands		-		All gang commands are listed here
+bounties		-		Explains more infomation on player bounties
+hitman			-		To put a bounty on a players head
+bounty			-		See if a player is on the bounty/hitlist
+hitlist			-		Shows all players who have a bounty/hitlist on there head
+banking			-		Explains how the banks work around SA
+transport		-		Explains how the transport system works around SA
+misc			-		These are miscellaneous commands,that are not in a category
+taxi			-		This is where the locations a taxi can take you
+seepms			-		If you don't want people sending you pm's then you can turn it off or on
+pm				-		Simple one,use this to send a pm to other player
+lock			-		This commands locks the doors of the vehicle you are in,but only if your the driver
+unlock			-		This commands unlock the doors of the vehicle you are in,but only if your the driver
+stats			-		This show you your statistics or other player statistics
+register		-		This is the command to register while ingame(See notes at end of this list)
+countdown		-		To start a countdown
+pause			-		You use this command to pause if you need to something else,it will place you out of harms way(See notes at end of this list)
+chillidog		-		If you are at the chillidog stand then you can buy a chillidog to replenish your health
+skyfall			-		A command that will throw you from the sky(with a parachute of course)
+givecash		-		This command will allow you to pass cash to another player(See notes at end of this list)
+gang			-		A list of gang commands
+gangs			-		This show a list of gangs around SA
+speed			-		This is a menu style speed-up of vehicle velocity,you can turn it on or off,but if you get out of a vehicle it will turn its self off
+bug				-		Okay this command is only for testing purposes,just to leave a note on any problems or bugs in the server while testing
+saveskin		-		Yep this command will save your skin,but only after you have ranked up(See notes on ranks at end of this list)
+unsaveskin		-		This will unsave your saved skin,easy really
+
+NOTES:
+PLAYER RANKS
+Players ranks work in hours,the more hours you play the more you open
+0-10 hours:   Newbie
+10-20 hours:  go-getter
+20-30 hours:  master
+30-40 hours:  Pro
+40-50 hours:  Expert
+50-100 hours: Elite
++100 hours:   Freak
+This may work with vehicle ownership and house size too later on.
+
+REGISTER
+Registration on the server if not compulsory,so you can either join the server and register or just play and register if you like it.
+
+PAUSE
+You can pause at anytime in the game,unless you are in jail(there will be other events that wont allow you to pause at a later point),on pausing your
+lose all use of commands,but you will be protected all the time you are paused,but be warned,this gm use's a movement checker,so if your are gone to long
+if will kick you from the game.
+
+GIVECASH
+This command does have a timer attached to it so players don't keep passing money around to much,this may also be changed to player rank = amount of 
+money given in one go.
+
+SAVESKIN
+Ok this commands was set for over 10 hours of gameplay,why,because i wanted at least one command that use player ranks,so players will see there is a benefits
+to playing more hours on the server.
+
+
